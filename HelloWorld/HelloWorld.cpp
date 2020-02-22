@@ -10,25 +10,20 @@
 //    implement.
 //
 // USAGE:
-//    1. Legacy pass manager
-//      # Request `HelloWorld` via a dedicated flag:
-//      opt -load libHelloWorld.dylib -legacy-hello-world -disable-output <input-llvm-file>
-//      # `HelloWorld` will be executed as part of the optimisation pipelines
-//      opt -load libHelloWorld.dylib -O{0|1|2|3} -disable-output <input-llvm-file>
-//    2. New pass manager
-//      # Define your pass pipeline via the '-passes' flag
-//      opt -load-pass-plugin=libHelloWorld.dylib -passes="hello-world" -disable-output <input-llvm-file>
+//    1. Legacy PM
+//      opt -load libHelloWorld.dylib -legacy-hello-world -disable-output\
+//        <input-llvm-file>
+//    2. New PM
+//      opt -load-pass-plugin=libHelloWorld.dylib -passes="hello-world"/
+//        -disable-output <input-llvm-file>
 //
 //
 // License: MIT
 //=============================================================================
 #include "llvm/IR/Function.h"
 #include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Pass.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
 using namespace llvm;
 
@@ -109,19 +104,3 @@ static RegisterPass<LegacyHelloWorld>
       true,  // This pass doesn't modify the CFG => true
       false  // This pass is not a pure analysis pass => false
     );
-
-#ifdef HELLOWORLD_OPT_PIPELINE_REG
-// Register LegacyHelloWorld as a step of an existing pipeline. The insertion
-// point is set to 'EP_EarlyAsPossible', which means that LegacyHelloWorld will
-// be run automatically at '-O{0|1|2|3}'.
-//
-// NOTE: this trips 'opt' installed via HomeBrew (Mac OS). It's a known issues:
-//    https://github.com/sampsyo/llvm-pass-skeleton/issues/7
-// I've tried all of the suggestions, but no luck. Locally I recommend either
-// building from sources or commenting this out. On Linux this always works
-// fine.
-static llvm::RegisterStandardPasses RegisterHelloWorld(
-    llvm::PassManagerBuilder::EP_EarlyAsPossible,
-    [](const llvm::PassManagerBuilder &Builder,
-       llvm::legacy::PassManagerBase &PM) { PM.add(new LegacyHelloWorld()); });
-#endif
