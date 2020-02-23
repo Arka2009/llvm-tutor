@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.4.3)
+project(llvm-tutor-hello-world)
 
 #===============================================================================
 # 1. LOAD LLVM CONFIGURATION
@@ -24,20 +25,6 @@ set(CMAKE_CXX_STANDARD 14 CACHE STRING "")
 # LLVM is normally built without RTTI. Be consistent with that.
 if(NOT LLVM_ENABLE_RTTI)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
-endif()
-
-# The following flag is used to enable the registration of HelloWorld with the
-# optimisation pipelines.
-# NOTE: Due to a known issue with LLVM installed with HomeBrew:
-#   https://github.com/sampsyo/llvm-pass-skeleton/issues/7
-# the following flag should be set to OFF when:
-#   * working on Mac OS _and_,
-#   * using LLVM installed via HomeBrew.
-# TL;DR 'opt' seg-faults when an out-of-tree pass is registered with an
-# existing optimisation pipeline.
-OPTION(HELLOWORLD_OPT_PIPELINE_REG "Register HelloWorld with the optimisation pipelines" OFF)
-if(HELLOWORLD_OPT_PIPELINE_REG)
-  add_definitions(-DHELLOWORLD_OPT_PIPELINE_REG)
 endif()
 
 #===============================================================================

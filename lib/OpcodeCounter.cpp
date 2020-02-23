@@ -3,23 +3,23 @@
 //    OpcodeCounter.cpp
 //
 // DESCRIPTION:
-//    Visits all functions in a module, prints their names and the number of
-//    arguments via stderr. Strictly speaking, this is an analysis pass (i.e.
-//    the functions are not modified). However, in order to keep things simple
-//    there's no 'print' method here, which every analysis pass should
-//    implement.
+//    Visits all instructions in a function and counts how many times every
+//    encountered opcode was used. The results are printed unconditionally.
 //
+//    This example demonstrates how to insert your pass at one of the
+//    predefined extension points, e.g. before any other transformations are
+//    run (`EP_EarlyAsPossible`). This is achieved by creating an instance of
+//    llvm::RegisterStandardPasses as demonstrated below.
 // USAGE:
 //    1. Legacy PM
-//      opt -load libOpcodeCounter.dylib -legacy-opcode-count -disable-output \
-//        <input-llvm-file>
+//      opt -load libOpcodeCounter.dylib -legacy-opcode-counter\
+//        -disable-output <input-llvm-file>
 //    2. New PM
 //      opt -load-pass-plugin=libOpcodeCounter.dylib -passes="opcode-count" \
 //        -disable-output <input-llvm-file>
-//    3. Through an exisiting optimisation pipeline
+//    3. Automatically through an optimisation pipeline
 //      opt -load libOpcodeCounter.dylib -O{0|1|2|3|s} -disable-output \
 //        <input-llvm-file>
-//
 //
 // License: MIT
 //=============================================================================
@@ -35,36 +35,37 @@ using namespace llvm;
 //-----------------------------------------------------------------------------
 // OpcodeCounter implementation
 //-----------------------------------------------------------------------------
-AnalysisKey OpcodeCounter::Key;
+OpcodeCounter::Result OpcodeCounter::generateOpcodeMap(Function &Func) {
+  OpcodeCounter::Result OpcodeMap;
 
-OpcodeCounter::Result OpcodeCounter::runOnFunction(Function &F) {
-  StringMap<unsigned> OC;
-  for (auto &BB : F) {
+  for (auto &BB : Func) {
     for (auto &Inst : BB) {
       StringRef Name = Inst.getOpcodeName();
-      if (OC.find(Name) == OC.end()) {
-        OC[Inst.getOpcodeName()] = 1;
+
+      if (OpcodeMap.find(Name) == OpcodeMap.end()) {
+        OpcodeMap[Inst.getOpcodeName()] = 1;
       } else {
-        OC[Inst.getOpcodeName()]++;
+        OpcodeMap[Inst.getOpcodeName()]++;
       }
     }
   }
 
-  return OC;
+  return OpcodeMap;
 }
 
-OpcodeCounter::Result
-OpcodeCounter::run(llvm::Function &F, llvm::FunctionAnalysisManager &) {
-  return runOnFunction(F);
+PreservedAnalyses OpcodeCounter::run(llvm::Function &Func,
+                                     llvm::FunctionAnalysisManager &) {
+  OpcodeCounter::Result OpcodeMap = generateOpcodeMap(Func);
+  printOpcodeCounterResult(OpcodeMap, Func.getName());
+
+  return llvm::PreservedAnalyses::all();
 }
 
-bool LegacyOpcodeCounter::runOnFunction(llvm::Function &F) {
-  OC = Impl.runOnFunction(F);
+bool LegacyOpcodeCounter::runOnFunction(llvm::Function &Func) {
+  OpcodeCounter::Result OpcodeMap = Impl.generateOpcodeMap(Func);
+  printOpcodeCounterResult(OpcodeMap, Func.getName());
+
   return false;
-}
-
-void LegacyOpcodeCounter::print(raw_ostream &OutS, Module const *) const {
-  printOpcodeCounterResult(OutS, OC);
 }
 
 //-----------------------------------------------------------------------------
@@ -73,12 +74,17 @@ void LegacyOpcodeCounter::print(raw_ostream &OutS, Module const *) const {
 llvm::PassPluginLibraryInfo getOpcodeCounterPluginInfo() {
   return {LLVM_PLUGIN_API_VERSION, "opcode-counter", LLVM_VERSION_STRING,
           [](PassBuilder &PB) {
-            PB.registerAnalysisRegistrationCallback(
-                [](FunctionAnalysisManager &FAM) {
-                  FAM.registerPass([&] { return OpcodeCounter(); });
+            PB.registerPipelineParsingCallback(
+                [](StringRef Name, FunctionPassManager &FPM,
+                   ArrayRef<PassBuilder::PipelineElement>) {
+                  if (Name == "opcode-counter") {
+                    FPM.addPass(OpcodeCounter());
+                    return true;
+                  }
+                  return false;
                 });
           }};
-};
+}
 
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo() {
@@ -105,31 +111,36 @@ static RegisterPass<LegacyOpcodeCounter>
 // point is set to 'EP_EarlyAsPossible', which means that LegacyOpcodeCounter will
 // be run automatically at '-O{0|1|2|3}'.
 //
-// NOTE: this trips 'opt' installed via HomeBrew (Mac OS). It's a known issues:
+// NOTE: this trips 'opt' installed via HomeBrew (Mac OS) and apt-get (Ubuntu).
+// It's a known issues:
 //    https://github.com/sampsyo/llvm-pass-skeleton/issues/7
-// I've tried all of the suggestions, but no luck. Locally I recommend either
-// building from sources or commenting this out. On Linux this always works
-// fine.
-static llvm::RegisterStandardPasses RegisterOpcodeCounter(
-    llvm::PassManagerBuilder::EP_EarlyAsPossible,
-    [](const llvm::PassManagerBuilder &Builder,
-       llvm::legacy::PassManagerBase &PM) { PM.add(new LegacyOpcodeCounter()); });
+//    https://bugs.llvm.org/show_bug.cgi?id=39321
+static llvm::RegisterStandardPasses
+    RegisterOpcodeCounter(llvm::PassManagerBuilder::EP_EarlyAsPossible,
+                          [](const llvm::PassManagerBuilder &Builder,
+                             llvm::legacy::PassManagerBase &PM) {
+                            PM.add(new LegacyOpcodeCounter());
+                          });
 
 //------------------------------------------------------------------------------
 // Helper functions
 //------------------------------------------------------------------------------
-void printOpcodeCounterResult(raw_ostream &OutS,
-                              const ResultOpcodeCounter &OC) {
-  OutS << "================================================="
-       << "\n";
-  OutS << "LLVM-TUTOR: static analysis results\n";
-  OutS << "=================================================\n";
-  const char *str1 = "NAME";
-  const char *str2 = "#N DIRECT CALLS";
-  OutS << format("%-20s %-10s\n", str1, str2);
-  OutS << "-------------------------------------------------"
-       << "\n";
-  for (auto &Inst : OC) {
-    OutS << format("%-20s %-10lu\n", Inst.first().str().c_str(), Inst.second);
+void printOpcodeCounterResult(const ResultOpcodeCounter &OpcodeMap,
+                              StringRef FuncName) {
+  llvm::errs() << "================================================="
+               << "\n";
+  llvm::errs() << "LLVM-TUTOR: OpcodeCounter results for `" << FuncName
+               << "`\n";
+  llvm::errs() << "=================================================\n";
+  const char *str1 = "OPCODE";
+  const char *str2 = "#N TIMES USED";
+  llvm::errs() << format("%-20s %-10s\n", str1, str2);
+  llvm::errs() << "-------------------------------------------------"
+               << "\n";
+  for (auto &Inst : OpcodeMap) {
+    llvm::errs() << format("%-20s %-10lu\n", Inst.first().str().c_str(),
+                           Inst.second);
   }
+  llvm::errs() << "-------------------------------------------------"
+               << "\n\n";
 }

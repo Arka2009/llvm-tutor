@@ -79,41 +79,6 @@ $LLVM_DIR/bin/opt -load-pass-plugin libHelloWorld.dylib -passes=hello-world -dis
 The **HelloWorld** pass doesn't modify the input module. The `-disable-output`
 flag is used to prevent **opt** from printing the output bitcode file.
 
-## Run HelloWorld automatically at any optimisation level
-**NOTE:** On MacOS this only works when building LLVM from sources. More
-information is available
-[here](https://github.com/banach-space/llvm-tutor/blob/master/HelloWorld/HelloWorld.cpp#L118).
-
-In order to run **HelloWorld** automatically at `-O{0|1|2|3}`, you have to enable
-registration with the optimisation pipelines. This is done via
-`HELLOWORLD_OPT_PIPELINE_REG` CMake variable:
-```bash
-export LLVM_DIR=<installation/dir/of/llvm/9>
-mkdir build
-cd build
-cmake -DLT_LLVM_INSTALL_DIR=$LLVM_DIR -DHELLOWORLD_OPT_PIPELINE_REG=On <source/dir/llvm/tutor>/HelloWorld/
-make
-```
-**HelloWorld** will now be run whenever an optimisation level is specified:
-```bash
-$LLVM_DIR/bin/opt -load libHelloWorld.dylib -O1 -disable-output input_for_hello.ll
-# Expected output
-(llvm-tutor) Hello from: foo
-(llvm-tutor)   number of arguments: 1
-(llvm-tutor) Hello from: bar
-(llvm-tutor)   number of arguments: 2
-(llvm-tutor) Hello from: fez
-(llvm-tutor)   number of arguments: 3
-(llvm-tutor) Hello from: main
-(llvm-tutor)   number of arguments: 2
-```
-This registration is implemented in
-[HelloWorld.cpp](https://github.com/banach-space/llvm-tutor/blob/master/HelloWorld/HelloWorld.cpp#L123).
-Note that for this to work I used the Legacy Pass Manager (the plugin was
-specified with `-load` rather than `-load-pass-plugin`).
-[Here](#about-pass-managers-in-llvm) you can read more about pass managers in
-LLVM.
-
 Development Environment
 =======================
 ## Platform Support And Requirements
@@ -203,6 +168,8 @@ Overview of The Passes
      the input module and prints the number of arguments for each
    * [**InjectFuncCall**](#injectfunccall) - instruments
      the input module by inserting calls to `printf`
+   * [**OpcodeCounter**](#opcodecounter) - prints the IR opcodes and how
+     many times each opcode was encountered 
    * [**StaticCallCounter**](#staticcallcounter) - counts
      direct function calls at compile-time
    * [**DynamicCallCounter**](#dynamiccallcounter) - counts
@@ -293,6 +260,75 @@ print `Hello from` is determined at either:
 Also, note that in the case of **InjectFuncCall** we had to first run the pass
 with **opt** and then execute the instrumented IR module in order to see the
 output.  For **HelloWorld** it was sufficient to run run the pass with **opt**.
+
+## OpcodeCounter
+**OpcodeCounter** prints a summary of the LLVM IR
+[opcodes](https://github.com/llvm/llvm-project/blob/release/9.x/llvm/lib/IR/Instruction.cpp#L292)
+used in every function in the input module. It's slightly more complicated than **HelloWorld**, but otherwise  
+
+#### Run the pass
+We will use
+[input_for_cc.c](https://github.com/banach-space/llvm-tutor/blob/master/inputs/input_for_cc.c)
+to test **OpcodeCounter**:
+```bash
+export LLVM_DIR=<installation/dir/of/llvm/9>
+# Generate an LLVM file to analyze
+$LLVM_DIR/bin/clang  -emit-llvm -c <source_dir>/inputs/input_for_cc.c -o input_for_cc.bc
+# Run the pass through opt
+$LLVM_DIR/bin/opt -load <build_dir>/lib/libOpcodeCounter.dylib -legacy-opcode-counter input_for_cc.bc
+```
+You will see the following output:
+```
+=================================================
+LLVM-TUTOR: OpcodeCounter results for `main`
+=================================================
+OPCODE               #N TIMES USED
+-------------------------------------------------
+load                 2
+br                   4
+icmp                 1
+add                  1
+ret                  1
+alloca               2
+store                4
+call                 4
+-------------------------------------------------
+```
+
+#### Run OpcodeCounter automatically at any optimisation level
+**NOTE:** Currently this only works when building LLVM from sources. More
+information is available
+[here](https://github.com/banach-space/llvm-tutor/blob/master/HelloWorld/HelloWorld.cpp#L118).
+
+In order to run **OpcodeCounter** automatically at `-O{0|1|2|3|s}`, you have to enable
+registration with the optimisation pipelines. This is done via
+`LT_OPT_PIPELINE_REG` CMake variable:
+```bash
+export LLVM_DIR=<installation/dir/of/llvm/9>
+mkdir build
+cd build
+cmake -DLT_LLVM_INSTALL_DIR=$LLVM_DIR -DLT_OPT_PIPELINE_REG=On <source/dir/llvm/tutor>/HelloWorld/
+make
+```
+**OpcodeCounter** will now be run whenever an optimisation level is specified:
+```bash
+$LLVM_DIR/bin/opt -load libHelloWorld.dylib -O1 -disable-output input_for_hello.ll
+# Expected output
+(llvm-tutor) Hello from: foo
+(llvm-tutor)   number of arguments: 1
+(llvm-tutor) Hello from: bar
+(llvm-tutor)   number of arguments: 2
+(llvm-tutor) Hello from: fez
+(llvm-tutor)   number of arguments: 3
+(llvm-tutor) Hello from: main
+(llvm-tutor)   number of arguments: 2
+```
+This registration is implemented in
+[HelloWorld.cpp](https://github.com/banach-space/llvm-tutor/blob/master/HelloWorld/HelloWorld.cpp#L123).
+Note that for this to work I used the Legacy Pass Manager (the plugin was
+specified with `-load` rather than `-load-pass-plugin`).
+[Here](#about-pass-managers-in-llvm) you can read more about pass managers in
+LLVM.
 
 ## StaticCallCounter
 The **StaticCallCounter** pass counts the number of _compile-time_ (i.e. visible

@@ -74,10 +74,10 @@ if (${SUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG} EQUAL "1")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility-inlines-hidden")
 endif()
 
-if(${HELLOWORLD_OPT_PIPELINE_REG})
-  set(HELLOWORLD_OPT_PIPELINE_REG 1)
+if(${LT_OPT_PIPELINE_REG})
+  set(LT_OPT_PIPELINE_REG 1)
 else()
-  set(HELLOWORLD_OPT_PIPELINE_REG 0)
+  set(LT_OPT_PIPELINE_REG 0)
 endif()
 
 # Set the build directories
